@@ -1,0 +1,528 @@
+﻿AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: Alfresco Rekognition Demo (using Step Functions). **WARNING** This template creates an Amazon VPC and EC2 instance. You will be billed for the AWS resources used if you create a stack from this template.
+
+Parameters:
+  VpcId:
+    Description: Existing VPC to place repository server within.
+    Type: AWS::EC2::VPC::Id
+  AvailabilityZone:
+    Description: Availability zone to place repository server within.
+    Type: AWS::EC2::AvailabilityZone::Name
+  SubnetId:
+    Description: Public subnet to place repository server within (must be part of the selected VPC).
+    Type: AWS::EC2::Subnet::Id
+  KeyName:
+    Description: Existing EC2 KeyPair for SSH access
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be the name of an existing KeyPair
+
+Mappings:
+
+  # AMIs to use for supported regions
+
+  RegionMap:
+    us-east-1:
+      AMI: ami-ac9d43ba
+    eu-west-1:
+      AMI: ami-1d68467b
+
+Resources:
+
+  # Define IAM roles
+
+  RepoServerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonKinesisFirehoseFullAccess
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+
+  RepoServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref RepoServerRole
+
+  FirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+        - PolicyName: s3Access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${AlfrescoEventsBucket}"
+                  - !Sub "arn:aws:s3:::${AlfrescoEventsBucket}/*"
+        - PolicyName: logsAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/${FirehoseLogGroup}:log-stream:${FirehoseLogStream}"
+        - PolicyName: lambdaAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - lambda:GetFunctionConfiguration
+                Resource: !GetAtt DataTransformationLambda.Arn
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - firehose.amazonaws.com
+    DependsOn: AlfrescoEventsBucket
+
+  DataTransformationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+
+  ProcessEventsLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AWSStepFunctionsFullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+
+  FetchContentLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+
+  ProcessRekognitionLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonRekognitionFullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+
+  ProcessMetadataLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+
+  EmptyBucketRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - s3.amazonaws.com
+                - lambda.amazonaws.com
+                - events.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: s3Access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:DeleteBucket
+                  - s3:ListBucketVersions
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - "*"
+
+  StateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: !Sub states.${AWS::Region}.amazonaws.com
+      Policies:
+        - PolicyName: lambda
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - "*"
+
+  # Define EC2 instance
+
+  RepoServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for repository server
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+      - CidrIp: 0.0.0.0/0
+        FromPort: 22
+        ToPort: 22
+        IpProtocol: tcp
+      - CidrIp: 0.0.0.0/0
+        FromPort: 80
+        ToPort: 80
+        IpProtocol: tcp
+      - CidrIp: 0.0.0.0/0
+        FromPort: 8161
+        ToPort: 8161
+        IpProtocol: tcp
+
+  RepoServerEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      KeyName: !Ref KeyName
+      ImageId:
+        Fn::FindInMap:
+          - RegionMap
+          - Ref: AWS::Region
+          - AMI
+      InstanceType: t2.large
+      AvailabilityZone: !Ref AvailabilityZone
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [ !Ref RepoServerSecurityGroup ]
+      IamInstanceProfile: !Ref RepoServerInstanceProfile
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          # configure Tomcat to look for modules
+          echo "<?xml version='1.0' encoding='utf-8'?><Context crossContext='true'><Loader className='org.apache.catalina.loader.VirtualWebappLoader' virtualClasspath='\${catalina.home}/repo-modules/*.jar' /></Context>" > /usr/share/tomcat-alfresco/conf/Catalina/localhost/alfresco.xml
+          echo "<?xml version='1.0' encoding='utf-8'?><Context crossContext='true'><Loader className='org.apache.catalina.loader.VirtualWebappLoader' virtualClasspath='\${catalina.home}/share-modules/*.jar' /></Context>" > /usr/share/tomcat-share/conf/Catalina/localhost/share.xml
+          # download modules
+          mkdir /usr/share/tomcat/repo-modules
+          wget -q -O /usr/share/tomcat/repo-modules/firehose-extension-platform-jar-1.0.1.jar https://github.com/gavincornwell/firehose-extension/releases/download/1.0.1/firehose-extension-platform-jar-1.0.1.jar
+          mkdir /usr/share/tomcat/share-modules
+          wget -q -O /usr/share/tomcat/share-modules/firehose-extension-share-jar-1.0.1.jar https://github.com/gavincornwell/firehose-extension/releases/download/1.0.1/firehose-extension-share-jar-1.0.1.jar
+          # install and start activemq
+          wget -q https://archive.apache.org/dist/activemq/5.14.3/apache-activemq-5.14.3-bin.tar.gz
+          tar -zxvf apache-activemq-5.14.3-bin.tar.gz -C /opt
+          # TODO: configure as service and start
+          /opt/apache-activemq-5.14.3/bin/activemq restart
+      Tags:
+      - Key: Name
+        Value: rekognition-step-functions-repo
+
+  # Define logging resources
+
+  FirehoseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/${AWS::StackName}"
+
+  FirehoseLogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref FirehoseLogGroup
+
+  # Define S3 bucket to hold matched alfresco events
+
+  AlfrescoEventsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+          - ExpirationInDays: 5
+            Status: Enabled
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt ProcessEventsLambda.Arn
+
+  # Define S3 bucket to hold retrieved content
+
+  AlfrescoContentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+          - ExpirationInDays: 1
+            Status: Enabled
+
+  # Define the Lambdas
+
+  DataTransformationLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: firehose-data-transformation.handler
+      Runtime: nodejs6.10
+      CodeUri: ./lambda-functions
+      Description: Function called by Firehose to process incoming data. Only new image events are accepted all other events are dropped.
+      MemorySize: 128
+      Timeout: 120
+      Role: !GetAtt DataTransformationLambdaRole.Arn
+
+  ProcessEventsLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: process-events.handler
+      Runtime: nodejs6.10
+      CodeUri: ./lambda-functions
+      Description: Function that processes the Alfresco events delivered via S3.
+      MemorySize: 128
+      Timeout: 30
+      Role: !GetAtt ProcessEventsLambdaRole.Arn
+      Environment:
+        Variables:
+          STEP_FUNCTION: !Ref ContentIngestionStateMachine
+
+  ProcessEventsNotificationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ProcessEventsLambda.Arn
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  FetchContentLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: fetch-content.handler
+      Runtime: nodejs6.10
+      CodeUri: ./lambda-functions
+      Description: Function that retrieves content from Alfresco and puts it in an S3 bucket.
+      MemorySize: 128
+      Timeout: 30
+      Role: !GetAtt FetchContentLambdaRole.Arn
+      Environment:
+        Variables:
+          REPO_HOST: !GetAtt RepoServerEC2Instance.PublicIp
+          REPO_PASSWORD: !Ref RepoServerEC2Instance
+          CONTENT_BUCKET: !Ref AlfrescoContentBucket
+
+  ProcessRekognitionLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: process-with-rekognition.handler
+      Runtime: nodejs6.10
+      CodeUri: ./lambda-functions
+      Description: Function that sends content from an S3 bucket to Rekognition for analysis.
+      MemorySize: 128
+      Timeout: 30
+      Role: !GetAtt ProcessRekognitionLambdaRole.Arn
+
+  ProcessMetadataLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: process-metadata.handler
+      Runtime: nodejs6.10
+      CodeUri: ./lambda-functions
+      Description: Function that updates the metadata of content stored in Alfresco.
+      MemorySize: 128
+      Timeout: 30
+      Role: !GetAtt ProcessMetadataLambdaRole.Arn
+      Environment:
+        Variables:
+          REPO_HOST: !GetAtt RepoServerEC2Instance.PublicIp
+          REPO_PASSWORD: !Ref RepoServerEC2Instance
+
+  EmptyBucketFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Lambda function that empties the given s3 bucket.
+      Handler: org.alfresco.aws.lambda.handlers.cfn.EmptyS3Bucket
+      Role: !GetAtt EmptyBucketRole.Arn
+      CodeUri: ./lambda-functions/alfresco-lambda-empty-s3-bucket-1.0.jar
+      Runtime: java8
+      MemorySize: 256
+      Timeout: 60
+
+  # Define the Firehose
+
+  Firehose:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamName: alfresco-events
+      ExtendedS3DestinationConfiguration:
+        BucketARN: !Sub "arn:aws:s3:::${AlfrescoEventsBucket}"
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 1
+        CompressionFormat: UNCOMPRESSED
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref FirehoseLogGroup
+          LogStreamName: !Ref FirehoseLogStream
+        Prefix: ""
+        RoleARN: !GetAtt FirehoseRole.Arn
+        ProcessingConfiguration:
+          Enabled: true
+          Processors:
+          - Type: Lambda
+            Parameters:
+            - ParameterName: LambdaArn
+              ParameterValue: !GetAtt DataTransformationLambda.Arn
+
+  # Define the Step Functions State Machine
+
+  ContentIngestionStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      DefinitionString: 
+        !Sub
+          - |-
+            {
+              "Comment": "Provides a content ingestion pipeline for Alfresco",
+              "StartAt": "FetchContent",
+              "States": {
+                "FetchContent": {
+                  "Type": "Task",
+                  "Resource": "${FetchContentLambdaArn}",
+                  "Comment": "Fetches content from Alfresco and stores in S3",
+                  "Next": "ProcessImage"
+                },
+                "ProcessImage": {
+                  "Type": "Task",
+                  "Resource": "${ProcessRekognitionLambdaArn}",
+                  "Comment": "Sends the image to Rekognition for analysis",
+                  "Next": "ProcessMetadata"
+                },
+                "ProcessMetadata": {
+                  "Type": "Task",
+                  "Resource": "${ProcessMetadataLambdaArn}",
+                  "Comment": "Updates the metadata for the node in Alfresco",
+                  "End": true
+                }
+              }
+            }
+          - {FetchContentLambdaArn: !GetAtt FetchContentLambda.Arn, ProcessRekognitionLambdaArn: !GetAtt ProcessRekognitionLambda.Arn, ProcessMetadataLambdaArn: !GetAtt ProcessMetadataLambda.Arn}
+      RoleArn: !GetAtt StateMachineRole.Arn
+
+  # Custom resources to delete S3 bucket
+
+  EmptyEventsBucketCustomResource:
+    Type: Custom::EmptyEventsBucketFunction
+    Properties:
+      ServiceToken: !GetAtt EmptyBucketFunction.Arn
+      BucketName: !Ref AlfrescoEventsBucket
+
+  EmptyContentBucketCustomResource:
+    Type: Custom::EmptyContentBucketFunction
+    Properties:
+      ServiceToken: !GetAtt EmptyBucketFunction.Arn
+      BucketName: !Ref AlfrescoContentBucket
+
+Outputs:
+
+  RepoUserName:
+    Description: Username for repository
+    Value: admin
+
+  RepoPassword:
+    Description: Password for repository
+    Value: !Ref RepoServerEC2Instance
+
+  ShareUrl:
+    Description: URL to Share UI
+    Value:
+      !Sub
+        - "http://${ip}/share"
+        - { ip: !GetAtt RepoServerEC2Instance.PublicIp }
+
+  RepoUrl:
+    Description: URL to repository
+    Value:
+      !Sub
+        - "http://${ip}/alfresco"
+        - { ip: !GetAtt RepoServerEC2Instance.PublicIp }
+
+  ActiveMQUrl:
+    Description: URL to topics page in ActiveMQ admin console
+    Value:
+      !Sub
+        - "http://${ip}:8161/admin/topics.jsp"
+        - { ip: !GetAtt RepoServerEC2Instance.PublicIp }
+
+  AlfrescoEventsBucketName:
+    Description: The name of the bucket used to hold the matching Alfresco event data
+    Value: !Ref AlfrescoEventsBucket
+
+  AlfrescoContentBucketName:
+    Description: The name of the bucket used to hold the content to be analysed by Rekognition
+    Value: !Ref AlfrescoContentBucket

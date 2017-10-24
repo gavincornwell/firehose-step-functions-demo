@@ -1,0 +1,26 @@
+#!/bin/bash
+
+if [ $# != 3 ]
+then
+  echo "usage: deploy <bucket-name> <stack-name> <key-pair-name>"
+  echo
+  echo "To see a list of available S3 buckets run 'aws s3 ls'."
+  echo
+  echo "To see a list of available keypairs run 'aws ec2 describe-key-pairs'."
+  exit 1
+fi
+
+EMPTY_BUCKET_JAR_VERSION=1.0
+EMPTY_BUCKET_JAR_NAME=alfresco-lambda-empty-s3-bucket-$EMPTY_BUCKET_JAR_VERSION.jar
+
+if [ ! -f ./lambda-functions/$EMPTY_BUCKET_JAR_NAME ]; then
+   wget -O ./lambda-functions/$EMPTY_BUCKET_JAR_NAME https://artifacts.alfresco.com/nexus/service/local/repositories/releases/content/org/alfresco/alfresco-lambda-empty-s3-bucket/$EMPTY_BUCKET_JAR_VERSION/$EMPTY_BUCKET_JAR_NAME
+fi
+
+aws cloudformation package --template-file cloud-formation-template.yaml --s3-bucket $1 --output-template-file cloud-formation-deploy.yaml
+
+#aws cloudformation deploy --template-file cloud-formation-deploy.yaml --stack-name $2 --capabilities CAPABILITY_IAM
+
+#rm cloud-formation-deploy.yaml
+
+#aws cloudformation describe-stacks --stack-name $2
