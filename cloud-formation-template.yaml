@@ -1,17 +1,11 @@
 ﻿AWSTemplateFormatVersion: '2010-09-09'
 Transform: 'AWS::Serverless-2016-10-31'
-Description: Alfresco Rekognition Demo (using Step Functions). **WARNING** This template creates an Amazon VPC and EC2 instance. You will be billed for the AWS resources used if you create a stack from this template.
+Description: |
+  Alfresco Rekognition Demo (using Step Functions). 
+  **WARNING** This template creates a number of resources including a new VPC and an EC2 instance which is placed in the first availability zone.
+  You will be billed for the AWS resources used if you create a stack from this template.
 
 Parameters:
-  VpcId:
-    Description: Existing VPC to place repository server within.
-    Type: AWS::EC2::VPC::Id
-  AvailabilityZone:
-    Description: Availability zone to place repository server within.
-    Type: AWS::EC2::AvailabilityZone::Name
-  SubnetId:
-    Description: Public subnet to place repository server within (must be part of the selected VPC).
-    Type: AWS::EC2::Subnet::Id
   KeyName:
     Description: Existing EC2 KeyPair for SSH access
     Type: AWS::EC2::KeyPair::KeyName
@@ -24,10 +18,24 @@ Mappings:
   RegionMap:
     us-east-1:
       AMI: ami-ac9d43ba
+    us-west-2:
+      AMI: ami-16f97b76
     eu-west-1:
       AMI: ami-1d68467b
 
 Resources:
+
+  # Create VPC
+
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/quickstart-reference/aws/vpc/latest/templates/aws-vpc.template
+      Parameters:
+        AvailabilityZones: !Sub "${AWS::Region}a,${AWS::Region}b"
+        NumberOfAZs: 2
+        CreatePrivateSubnets: false
+        KeyPairName: !Ref KeyName
 
   # Define IAM roles
 
@@ -240,7 +248,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Security group for repository server
-      VpcId: !Ref VpcId
+      VpcId: !GetAtt VPCStack.Outputs.VPCID
       SecurityGroupIngress:
       - CidrIp: 0.0.0.0/0
         FromPort: 22
@@ -265,8 +273,8 @@ Resources:
           - Ref: AWS::Region
           - AMI
       InstanceType: t2.large
-      AvailabilityZone: !Ref AvailabilityZone
-      SubnetId: !Ref SubnetId
+      AvailabilityZone: !Sub "${AWS::Region}a"
+      SubnetId: !GetAtt VPCStack.Outputs.PublicSubnet1ID
       SecurityGroupIds: [ !Ref RepoServerSecurityGroup ]
       IamInstanceProfile: !Ref RepoServerInstanceProfile
       UserData:
@@ -519,11 +527,3 @@ Outputs:
       !Sub
         - "http://${ip}:8161/admin/topics.jsp"
         - { ip: !GetAtt RepoServerEC2Instance.PublicIp }
-
-  AlfrescoEventsBucketName:
-    Description: The name of the bucket used to hold the matching Alfresco event data
-    Value: !Ref AlfrescoEventsBucket
-
-  AlfrescoContentBucketName:
-    Description: The name of the bucket used to hold the content to be analysed by Rekognition
-    Value: !Ref AlfrescoContentBucket

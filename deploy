@@ -19,8 +19,8 @@ fi
 
 aws cloudformation package --template-file cloud-formation-template.yaml --s3-bucket $1 --output-template-file cloud-formation-deploy.yaml
 
-#aws cloudformation deploy --template-file cloud-formation-deploy.yaml --stack-name $2 --capabilities CAPABILITY_IAM
+aws cloudformation deploy --template-file cloud-formation-deploy.yaml --stack-name $2 --parameter-overrides KeyName=$3 --capabilities CAPABILITY_IAM
 
-#rm cloud-formation-deploy.yaml
+rm cloud-formation-deploy.yaml
 
-#aws cloudformation describe-stacks --stack-name $2
+aws cloudformation describe-stacks --stack-name $2
