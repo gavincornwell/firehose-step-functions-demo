@@ -1,6 +1,9 @@
 'use strict';
 
 const AWS = require('aws-sdk');
+AWS.config.update({
+    region: process.env.AWS_REGION
+});
 
 const s3 = new AWS.S3({ apiVersion: '2006-03-01' });
 const stepFunctions = new AWS.StepFunctions();
@@ -82,7 +85,7 @@ var processAlfrescoEvent = function(alfEventString, callback) {
         }
         else
         {
-            const message = `Successfully started state machine execution for ${data.executionArn}`;
+            const message = `Successfully started state machine execution: ${data.executionArn}`;
             console.log(message);
             callback(null, message);
         }

@@ -1,6 +1,9 @@
 'use strict';
 
 const AWS = require('aws-sdk');
+AWS.config.update({
+    region: process.env.AWS_REGION
+});
 
 const s3 = new AWS.S3({ apiVersion: '2006-03-01' });
 const rekognition = new AWS.Rekognition();
@@ -104,6 +107,7 @@ exports.handler = (event, context, callback) => {
                 alfrescoEvent: event.alfrescoEvent,
                 s3Bucket: event.s3Bucket,
                 s3Key: event.s3Key,
+                isImage: event.isImage,
                 metadata: updateBody
             }
 

@@ -1,6 +1,10 @@
 'use strict';
 
 const AWS = require('aws-sdk');
+AWS.config.update({
+    region: process.env.AWS_REGION
+});
+
 const http = require('http');
 
 const s3 = new AWS.S3({ apiVersion: '2006-03-01' });
@@ -58,10 +62,18 @@ exports.handler = (event, context, callback) => {
                 {
                     console.log("Successfully stored content");
 
+                    // determine content type
+                    var isImage = true;
+                    if (event.name.endsWith(".txt"))
+                    {
+                        isImage = false;
+                    }
+
                     var result = {
                         alfrescoEvent: event,
                         s3Bucket: bucket,
-                        s3Key: nodeId
+                        s3Key: nodeId,
+                        isImage: isImage
                     }
 
                     console.log("Returning result: " + JSON.stringify(result, null, 2));

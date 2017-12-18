@@ -1,5 +1,8 @@
 'use strict';
 
+// set the region
+process.env.AWS_REGION = 'us-west-2';
+
 let fetchContent = require('./fetch-content.js');
 
 // TODO: Add a recent alfresco event object here (needs to refer to nodes present in the repository)

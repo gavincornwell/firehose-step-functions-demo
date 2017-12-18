@@ -174,6 +174,23 @@ Resources:
               Service:
                 - lambda.amazonaws.com
 
+  ProcessComprehendLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/ComprehendReadOnly
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+
   ProcessMetadataLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -396,6 +413,17 @@ Resources:
       Timeout: 30
       Role: !GetAtt ProcessRekognitionLambdaRole.Arn
 
+  ProcessComprehendLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: process-with-comprehend.handler
+      Runtime: nodejs6.10
+      CodeUri: ./lambda-functions
+      Description: Function that sends content from an S3 bucket to Comprehend for analysis.
+      MemorySize: 128
+      Timeout: 30
+      Role: !GetAtt ProcessComprehendLambdaRole.Arn
+
   ProcessMetadataLambda:
     Type: AWS::Serverless::Function
     Properties:
@@ -464,12 +492,29 @@ Resources:
                   "Type": "Task",
                   "Resource": "${FetchContentLambdaArn}",
                   "Comment": "Fetches content from Alfresco and stores in S3",
-                  "Next": "ProcessImage"
+                  "Next": "ChooseProcessingType"
+                },
+                "ChooseProcessingType": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.isImage",
+                      "BooleanEquals": true,
+                      "Next": "ProcessImage"
+                    }
+                  ],
+                  "Default": "ProcessText"
                 },
                 "ProcessImage": {
                   "Type": "Task",
                   "Resource": "${ProcessRekognitionLambdaArn}",
                   "Comment": "Sends the image to Rekognition for analysis",
+                  "Next": "ProcessMetadata"
+                },
+                "ProcessText": {
+                  "Type": "Task",
+                  "Resource": "${ProcessComprehendLambdaArn}",
+                  "Comment": "Sends the text to Comprehend for analysis",
                   "Next": "ProcessMetadata"
                 },
                 "ProcessMetadata": {
@@ -480,7 +525,7 @@ Resources:
                 }
               }
             }
-          - {FetchContentLambdaArn: !GetAtt FetchContentLambda.Arn, ProcessRekognitionLambdaArn: !GetAtt ProcessRekognitionLambda.Arn, ProcessMetadataLambdaArn: !GetAtt ProcessMetadataLambda.Arn}
+          - {FetchContentLambdaArn: !GetAtt FetchContentLambda.Arn, ProcessRekognitionLambdaArn: !GetAtt ProcessRekognitionLambda.Arn, ProcessComprehendLambdaArn: !GetAtt ProcessComprehendLambda.Arn, ProcessMetadataLambdaArn: !GetAtt ProcessMetadataLambda.Arn}
       RoleArn: !GetAtt StateMachineRole.Arn
 
   # Custom resources to delete S3 bucket
