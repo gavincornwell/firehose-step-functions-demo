@@ -72,18 +72,18 @@ exports.handler = (event, context, callback) => {
                     var updateBody = {
                         nodeType: "acme:insuranceClaimReport",
                         properties: {
-                            "acme:imageId": Date.now()
+                            "acme:reportId": Date.now()
                         }
                     };
 
                     // add any entities found
-                    if (location)
-                    {
-                        updateBody.properties["acme:insuredLocation"] = location;
-                    }
                     if (insured)
                     {
-                        updateBody.properties["acme:insuredName"] = insured;
+                        updateBody.properties["acme:claimAdjuster"] = insured;
+                    }
+                    if (location)
+                    {
+                        updateBody.properties["acme:visitLocation"] = location;
                     }
                     if (visitDate)
                     {
@@ -107,7 +107,7 @@ exports.handler = (event, context, callback) => {
                             {
                                 needsInvestigation = true;
                             }
-                            updateBody.properties["acme:needsInvestigation"] = needsInvestigation;
+                            updateBody.properties["acme:visitFollowUp"] = needsInvestigation;
 
                             var result = {
                                 alfrescoEvent: event.alfrescoEvent,

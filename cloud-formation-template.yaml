@@ -302,9 +302,9 @@ Resources:
           echo "<?xml version='1.0' encoding='utf-8'?><Context crossContext='true'><Loader className='org.apache.catalina.loader.VirtualWebappLoader' virtualClasspath='\${catalina.home}/share-modules/*.jar' /></Context>" > /usr/share/tomcat-share/conf/Catalina/localhost/share.xml
           # download modules
           mkdir /usr/share/tomcat/repo-modules
-          wget -q -O /usr/share/tomcat/repo-modules/firehose-extension-platform-jar-1.0.1.jar https://github.com/gavincornwell/firehose-extension/releases/download/1.0.1/firehose-extension-platform-jar-1.0.1.jar
+          wget -q -O /usr/share/tomcat/repo-modules/firehose-extension-platform-jar-1.1.jar https://github.com/gavincornwell/firehose-extension/releases/download/1.1/firehose-extension-platform-jar-1.1.jar
           mkdir /usr/share/tomcat/share-modules
-          wget -q -O /usr/share/tomcat/share-modules/firehose-extension-share-jar-1.0.1.jar https://github.com/gavincornwell/firehose-extension/releases/download/1.0.1/firehose-extension-share-jar-1.0.1.jar
+          wget -q -O /usr/share/tomcat/share-modules/firehose-extension-share-jar-1.1.jar https://github.com/gavincornwell/firehose-extension/releases/download/1.1/firehose-extension-share-jar-1.1.jar
           # install and setup activemq as a service
           wget -q https://archive.apache.org/dist/activemq/5.14.3/apache-activemq-5.14.3-bin.tar.gz
           tar -zxvf apache-activemq-5.14.3-bin.tar.gz -C /opt

@@ -41,7 +41,7 @@ exports.handler = (event, context, callback) => {
         });
 
         updateResponse.on('end', function () {
-            console.log("Successfully updated image with status: " + updateResponse.statusCode);
+            console.log("Successfully updated node with status: " + updateResponse.statusCode);
             var result = {
                 alfrescoEvent: event.alfrescoEvent,
                 s3Bucket: event.s3Bucket,
@@ -57,7 +57,7 @@ exports.handler = (event, context, callback) => {
     
     // update request error handler
     updateRequest.on('error', function (err) {
-        console.log("Failed to update image: " + err);
+        console.log("Failed to update node: " + err);
         callback(err);
     });
 
